@@ -30,13 +30,19 @@ pub struct Chip8 {
     pc: u16,
     opcode: u16,
     sp: u8,
-    delay_timer: u8,
-    sound_timer: u8,
+    dt: u8,
+    st: u8,
     v: [u8; 16],
     stack: [u8; 16],
     pub memory: [u8; MEMORY_SIZE],
     keypad: [u8; 16],
     display_buffer: [u8; 64 * 32],
+    code: u16,
+    x: usize,
+    y: usize,
+    n: u16,
+    nn: u16,
+    nnn: u16,
 }
 
 impl Chip8 {
@@ -48,13 +54,19 @@ impl Chip8 {
             pc: START_ADDRESS as u16,
             opcode: 0,
             sp: 0,
-            delay_timer: 0,
-            sound_timer: 0,
+            dt: 0,
+            st: 0,
             v: [0; 16],
             stack: [0; 16],
             memory,
             keypad: [0; 16],
             display_buffer: [0; 64 * 32],
+            code: 0,
+            x: 0,
+            y: 0,
+            n: 0,
+            nn: 0,
+            nnn: 0,
         }
     }
 
@@ -65,6 +77,29 @@ impl Chip8 {
         self.memory[START_ADDRESS..end_address].copy_from_slice(&content[..]);
 
         Ok(())
+    }
+
+    fn fetch(&mut self) {
+        self.opcode = ((self.memory[self.pc as usize] as u16) << 8)
+            | self.memory[(self.pc + 1) as usize] as u16;
+        self.pc += 2;
+    }
+
+    fn decode(&mut self) {
+        self.code = self.opcode & 0xf000;
+        self.x = (self.opcode & 0x0f00 >> 8) as usize;
+        self.y = (self.opcode & 0x00f0 >> 4) as usize;
+        self.n = self.opcode & 0x000f;
+        self.nn = self.opcode & 0x00ff;
+        self.nnn = self.opcode & 0x0fff;
+    }
+
+    fn execute(&mut self) {}
+
+    fn step(&mut self) {
+        self.fetch();
+        self.decode();
+        self.execute();
     }
 }
 
