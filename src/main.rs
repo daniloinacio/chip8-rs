@@ -17,5 +17,5 @@ fn main() {
         process::exit(1);
     }
 
-    println!("memory: {:?}", chip8.memory);
+    chip8.run();
 }
