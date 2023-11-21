@@ -226,18 +226,20 @@ impl Chip8 {
                 let y0 = self.v[self.y];
 
                 for y in 0..self.n {
-                    let sprite = self.memory[self.i + y as usize];
+                    let sprite_byte = self.memory[self.i + y as usize];
                     for x in 0..8 {
-                        // Get more significant bit
-                        let pixel = (sprite & (0x80 >> x)) >> (7 - x);
+                        // Get each bit from the sprite byte
+                        let pixel = (sprite_byte & (0x80 >> x)) >> (7 - x);
                         let coord_x = (x0 + x) % DISPLAY_WIDTH as u8;
                         let coord_y = (y0 + y) % DISPLAY_HEIGTH as u8;
                         let coordinate =
                             (coord_x + (coord_y as usize * DISPLAY_WIDTH) as u8) as usize;
                         // Check collision
-                        if self.display_buffer[coordinate] == 1 {
-                            self.v[0x0f] = 1;
-                        }
+                        self.v[0x0f] = if self.display_buffer[coordinate] == 1 && pixel == 1 {
+                            1
+                        } else {
+                            0
+                        };
                         self.display_buffer[coordinate] ^= pixel;
                     }
                 }
