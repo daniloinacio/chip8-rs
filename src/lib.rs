@@ -3,6 +3,12 @@ use std::error::Error;
 use std::fs;
 use std::io;
 
+extern crate sdl2;
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
+use sdl2::pixels::Color;
+use sdl2::rect::Point;
+
 const MEMORY_SIZE: usize = 4096;
 const START_ADDRESS: usize = 0x200;
 const FONT_SPRITE_SIZE: usize = 5;
@@ -307,19 +313,72 @@ impl Chip8 {
     }
 
     pub fn run(&mut self) {
-        let mut step_by_step = true;
-        loop {
+        // Setup SDL
+        let sdl_context = sdl2::init().unwrap();
+        let video_subsystem = sdl_context.video().unwrap();
+
+        let window = video_subsystem
+            .window("CHIP8", 640, 320)
+            .position_centered()
+            .build()
+            .unwrap();
+
+        let mut canvas = window.into_canvas().build().unwrap();
+        canvas.set_scale(10.0, 10.0).unwrap();
+
+        let mut event_pump = sdl_context.event_pump().unwrap();
+
+        'running: loop {
+            // Run instruction
             self.step();
 
-            if step_by_step {
-                let mut input = String::new();
-                io::stdin().read_line(&mut input).unwrap();
-                let input = input.trim();
+            // Update display
+            if self.display_update {
+                canvas.set_draw_color(Color::RGBA(0, 0, 0, 0));
+                canvas.clear();
+                canvas.set_draw_color(Color::RGBA(255, 255, 255, 255));
+                for i in 0..32 {
+                    for j in 0..64 {
+                        if self.display_buffer[i * 64 + j] == 1 {
+                            canvas.draw_point(Point::new(j as i32, i as i32)).unwrap();
+                        }
+                    }
+                }
+                canvas.present();
+            }
 
-                if input == "q" || input == "quit" {
-                    break;
-                } else if input == "run" {
-                    step_by_step = false;
+            // Update keyboard
+            self.keyboard = [0; 16];
+            event_pump
+                .keyboard_state()
+                .pressed_scancodes()
+                .filter_map(Keycode::from_scancode)
+                .for_each(|key| {
+                    match key {
+                        Keycode::Num1 => self.keyboard[0x1] = 1,
+                        Keycode::Num2 => self.keyboard[0x2] = 1,
+                        Keycode::Num3 => self.keyboard[0x3] = 1,
+                        Keycode::Num4 => self.keyboard[0xc] = 1,
+                        Keycode::Q => self.keyboard[0x4] = 1,
+                        Keycode::W => self.keyboard[0x5] = 1,
+                        Keycode::E => self.keyboard[0x6] = 1,
+                        Keycode::R => self.keyboard[0xd] = 1,
+                        Keycode::A => self.keyboard[0x7] = 1,
+                        Keycode::S => self.keyboard[0x8] = 1,
+                        Keycode::D => self.keyboard[0x9] = 1,
+                        Keycode::F => self.keyboard[0xe] = 1,
+                        Keycode::Z => self.keyboard[0xa] = 1,
+                        Keycode::X => self.keyboard[0x0] = 1,
+                        Keycode::C => self.keyboard[0xb] = 1,
+                        Keycode::V => self.keyboard[0xf] = 1,
+                        _ => {}
+                    };
+                });
+
+            for event in event_pump.poll_iter() {
+                match event {
+                    Event::Quit { .. } => break 'running,
+                    _ => {}
                 }
             }
         }
