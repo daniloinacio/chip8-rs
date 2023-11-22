@@ -49,13 +49,13 @@ pub struct Chip8 {
     stack: [u16; 16],
     pub memory: [u8; MEMORY_SIZE],
     keyboard: [u8; 16],
-    display_buffer: [u8; DISPLAY_WIDTH * DISPLAY_HEIGTH],
+    frame_buffer: [u8; DISPLAY_WIDTH * DISPLAY_HEIGTH],
     display_update: bool,
     code: u16,
     x: usize,
     y: usize,
     n: u8,
-    kk: u8,
+    nn: u8,
     nnn: u16,
 }
 
@@ -75,13 +75,13 @@ impl Chip8 {
             stack: [0; 16],
             memory,
             keyboard: [0; 16],
-            display_buffer: [0; 64 * 32],
+            frame_buffer: [0; 64 * 32],
             display_update: false,
             code: 0,
             x: 0,
             y: 0,
             n: 0,
-            kk: 0,
+            nn: 0,
             nnn: 0,
         }
     }
@@ -96,6 +96,19 @@ impl Chip8 {
         Ok(())
     }
 
+    pub fn show_frame_buffer(&self) {
+        let line = "-".to_string().repeat(DISPLAY_WIDTH * 2);
+        println!("{line}");
+        for i in 0..DISPLAY_HEIGTH {
+            print!("|{}", self.frame_buffer[i * DISPLAY_WIDTH]);
+            for j in 1..DISPLAY_WIDTH {
+                print!(" {}", self.frame_buffer[i * DISPLAY_WIDTH + j]);
+            }
+            println!("|");
+        }
+        println!("{line}");
+    }
+
     fn fetch(&mut self) {
         println!("CHIP8: Fetch opcode from memory");
         self.opcode = ((self.memory[self.pc] as u16) << 8) | self.memory[self.pc + 1] as u16;
@@ -108,7 +121,7 @@ impl Chip8 {
         self.x = (self.opcode & 0x0f00 >> 8) as usize;
         self.y = (self.opcode & 0x00f0 >> 4) as usize;
         self.n = (self.opcode & 0x000f) as u8;
-        self.kk = (self.opcode & 0x00ff) as u8;
+        self.nn = (self.opcode & 0x00ff) as u8;
         self.nnn = self.opcode & 0x0fff;
     }
 
@@ -119,7 +132,7 @@ impl Chip8 {
         match self.code {
             // CLS
             0x00e0 => {
-                self.display_buffer = [0; DISPLAY_WIDTH * DISPLAY_HEIGTH];
+                self.frame_buffer = [0; DISPLAY_WIDTH * DISPLAY_HEIGTH];
                 self.display_update = true;
             }
             // RET
@@ -137,13 +150,13 @@ impl Chip8 {
             }
             // SE Vx, byte
             0x3000 => {
-                if self.v[self.x] == self.kk {
+                if self.v[self.x] == self.nn {
                     self.pc += 2;
                 }
             }
             // SNE Vx, byte
             0x4000 => {
-                if self.v[self.x] != self.kk {
+                if self.v[self.x] != self.nn {
                     self.pc += 2;
                 }
             }
@@ -154,10 +167,10 @@ impl Chip8 {
                 }
             }
             // LD Vx, byte
-            0x6000 => self.v[self.x] = self.kk,
+            0x6000 => self.v[self.x] = self.nn,
             // ADD Vx, byte
             0x7000 => {
-                let result = self.v[self.x] as u16 + self.kk as u16;
+                let result = self.v[self.x] as u16 + self.nn as u16;
                 self.v[self.x] = (result & 0x00ff) as u8;
             }
             0x8000 => match self.n {
@@ -219,7 +232,7 @@ impl Chip8 {
             // JP V0, addr
             0xb000 => self.pc = (self.v[0] as u16 + self.nnn) as usize,
             // RND Vx, byte
-            0xc000 => self.v[self.x] = rand::thread_rng().gen_range(0..=255) & self.kk,
+            0xc000 => self.v[self.x] = rand::thread_rng().gen_range(0..=255) & self.nn,
             // DRW Vx, Vy, nibble
             0xd000 => {
                 let x0 = self.v[self.x];
@@ -235,17 +248,17 @@ impl Chip8 {
                         let coordinate =
                             (coord_x + (coord_y as usize * DISPLAY_WIDTH) as u8) as usize;
                         // Check collision
-                        self.v[0x0f] = if self.display_buffer[coordinate] == 1 && pixel == 1 {
+                        self.v[0x0f] = if self.frame_buffer[coordinate] == 1 && pixel == 1 {
                             1
                         } else {
                             0
                         };
-                        self.display_buffer[coordinate] ^= pixel;
+                        self.frame_buffer[coordinate] ^= pixel;
                     }
                 }
                 self.display_update = true;
             }
-            0xe000 => match self.kk {
+            0xe000 => match self.nn {
                 // SKP Vx
                 0x009e => {
                     if self.keyboard[self.v[self.x] as usize] == KEY_PRESSED {
@@ -260,7 +273,7 @@ impl Chip8 {
                 }
                 _ => {}
             },
-            0xf000 => match self.kk {
+            0xf000 => match self.nn {
                 // LD Vx, DT
                 0x0007 => self.v[self.x] = self.dt,
                 // LD Vx, K
@@ -330,9 +343,24 @@ impl Chip8 {
 
         let mut event_pump = sdl_context.event_pump().unwrap();
 
+        let mut step_by_step = true;
+
         'running: loop {
             // Run instruction
             self.step();
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            let input = input.trim();
+
+            if step_by_step {
+                match input {
+                    "q" | "quit" => break 'running,
+                    "d" => self.show_frame_buffer(),
+                    "run" => step_by_step = false,
+                    _ => {}
+                }
+            }
 
             // Update display
             if self.display_update {
@@ -341,7 +369,7 @@ impl Chip8 {
                 canvas.set_draw_color(Color::RGBA(255, 255, 255, 255));
                 for i in 0..32 {
                     for j in 0..64 {
-                        if self.display_buffer[i * 64 + j] == 1 {
+                        if self.frame_buffer[i * 64 + j] == 1 {
                             canvas.draw_point(Point::new(j as i32, i as i32)).unwrap();
                         }
                     }
