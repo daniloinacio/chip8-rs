@@ -86,13 +86,21 @@ impl Chip8 {
         }
     }
 
-    pub fn load_rom(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
-        println!("CHIP8: Load ROM to memory");
+    pub fn load_bin(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
+        println!("CHIP8: Load the binary to memory");
         let content: Vec<u8> = fs::read(path)?;
-        let end_address = START_ADDRESS + content.len();
 
-        self.memory[START_ADDRESS..end_address].copy_from_slice(&content[..]);
+        self.store_data_ram(content)?;
 
+        Ok(())
+    }
+
+    fn store_data_ram(&mut self, data: Vec<u8>) -> Result<(), &'static str> {
+        let end_address = START_ADDRESS + data.len();
+        if end_address >= MEMORY_SIZE {
+            return Err("Data too large to store in the RAM!");
+        }
+        self.memory[START_ADDRESS..end_address].copy_from_slice(&data[..]);
         Ok(())
     }
 

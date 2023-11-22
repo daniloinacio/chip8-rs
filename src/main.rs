@@ -12,7 +12,7 @@ fn main() {
 
     let mut chip8 = Chip8::new();
 
-    if let Err(e) = chip8.load_rom(&path) {
+    if let Err(e) = chip8.load_bin(&path) {
         eprintln!("Chip8 error: {e}");
         process::exit(1);
     }
