@@ -2,12 +2,16 @@ use rand::Rng;
 use std::error::Error;
 use std::fs;
 use std::io;
+use sdl2::Sdl;
 
 extern crate sdl2;
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
-use sdl2::rect::Point;
+mod display;
+mod keyboard;
+
+use crate::display::Display;
+use crate::display::DisplayConfig;
+use crate::keyboard::Keyboard;
+use crate::keyboard::KeyboardConfig;
 
 const MEMORY_SIZE: usize = 4096;
 const START_ADDRESS: usize = 0x200;
@@ -16,8 +20,8 @@ const FONTSET_START_ADDRESS: usize = 0x50;
 const FONTSET_SIZE: usize = 80;
 const DISPLAY_WIDTH: usize = 64;
 const DISPLAY_HEIGTH: usize = 32;
-const KEY_PRESSED: u8 = 1;
-const KEY_NOT_PRESSED: u8 = 0;
+const N_REGISTERS: usize = 16;
+const N_STACK_LEVELS: usize = 16;
 const FONTSET_END_ADDRESS: usize = FONTSET_START_ADDRESS + FONTSET_SIZE;
 const FONTSET: [u8; FONTSET_SIZE] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -45,12 +49,14 @@ pub struct Chip8 {
     sp: usize,
     dt: u8,
     st: u8,
-    v: [u8; 16],
-    stack: [u16; 16],
-    pub memory: [u8; MEMORY_SIZE],
-    keyboard: [u8; 16],
+    v: [u8; N_REGISTERS],
+    stack: [u16; N_STACK_LEVELS],
+    memory: [u8; MEMORY_SIZE],
+    keyboard: Keyboard,
     frame_buffer: [u8; DISPLAY_WIDTH * DISPLAY_HEIGTH],
+    display: Display,
     display_update: bool,
+    sdl_context: Sdl,
     code: u16,
     x: usize,
     y: usize,
@@ -64,6 +70,19 @@ impl Chip8 {
         println!("CHIP8: Init memory and registers");
         let mut memory = [0; MEMORY_SIZE];
         memory[FONTSET_START_ADDRESS..FONTSET_END_ADDRESS].copy_from_slice(&FONTSET[..]);
+        
+        // Setup SDL
+        let sdl_context = sdl2::init().unwrap();
+        let mut video_subsystem = sdl_context.video().unwrap();
+        
+        let display_config = DisplayConfig {
+            scale: 10.0,
+            width: 640, 
+            height: 320,
+        };
+        
+        let keyboard_config = KeyboardConfig{};
+
         Chip8 {
             i: 0,
             pc: START_ADDRESS,
@@ -71,12 +90,14 @@ impl Chip8 {
             sp: 0,
             dt: 0,
             st: 0,
-            v: [0; 16],
-            stack: [0; 16],
+            v: [0; N_REGISTERS],
+            stack: [0; N_STACK_LEVELS],
             memory,
-            keyboard: [0; 16],
-            frame_buffer: [0; 64 * 32],
+            keyboard: Keyboard::new(keyboard_config),
+            frame_buffer: [0; DISPLAY_WIDTH * DISPLAY_HEIGTH],
+            display: Display::new(display_config, &mut video_subsystem),
             display_update: false,
+            sdl_context,
             code: 0,
             x: 0,
             y: 0,
@@ -269,13 +290,13 @@ impl Chip8 {
             0xe000 => match self.nn {
                 // SKP Vx
                 0x009e => {
-                    if self.keyboard[self.v[self.x] as usize] == KEY_PRESSED {
+                    if self.keyboard.is_key_pressed(self.v[self.x]) {
                         self.pc += 2;
                     }
                 }
                 // SKNP Vx
                 0x00a1 => {
-                    if self.keyboard[self.v[self.x] as usize] == KEY_NOT_PRESSED {
+                    if self.keyboard.is_key_not_pressed(self.v[self.x]) {
                         self.pc += 2;
                     }
                 }
@@ -286,14 +307,13 @@ impl Chip8 {
                 0x0007 => self.v[self.x] = self.dt,
                 // LD Vx, K
                 0x000a => {
-                    self.v[self.x] = 'outer: loop {
-                        // TODO: Add keyboard state update
-                        for (i, key) in self.keyboard.iter().enumerate() {
-                            if *key == KEY_PRESSED {
-                                break 'outer i;
-                            }
+                    let mut event_pump = self.sdl_context.event_pump().unwrap();
+                    self.v[self.x] = 'polling: loop {
+                        self.keyboard.state_update(&mut event_pump);
+                        if let Some(key) = self.keyboard.get_pressed_key() {
+                            break 'polling key;
                         }
-                    } as u8;
+                    };
                 }
                 // LD DT, Vx
                 0x0015 => self.dt = self.v[self.x],
@@ -313,13 +333,13 @@ impl Chip8 {
                 }
                 // LD [I], Vx
                 0x0055 => {
-                    for i in 0..16 {
+                    for i in 0..N_REGISTERS {
                         self.memory[self.i + i] = self.v[i];
                     }
                 }
                 // LD Vx, [I]
                 0x0065 => {
-                    for i in 0..16 {
+                    for i in 0..N_REGISTERS {
                         self.v[i] = self.memory[self.i + 1];
                     }
                 }
@@ -336,32 +356,17 @@ impl Chip8 {
     }
 
     pub fn run(&mut self) {
-        // Setup SDL
-        let sdl_context = sdl2::init().unwrap();
-        let video_subsystem = sdl_context.video().unwrap();
-
-        let window = video_subsystem
-            .window("CHIP8", 640, 320)
-            .position_centered()
-            .build()
-            .unwrap();
-
-        let mut canvas = window.into_canvas().build().unwrap();
-        canvas.set_scale(10.0, 10.0).unwrap();
-
-        let mut event_pump = sdl_context.event_pump().unwrap();
-
         let mut step_by_step = true;
+        let mut event_pump = self.sdl_context.event_pump().unwrap();
 
         'running: loop {
             // Run instruction
             self.step();
 
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).unwrap();
-            let input = input.trim();
-
             if step_by_step {
+                let mut input = String::new();
+                io::stdin().read_line(&mut input).unwrap();
+                let input = input.trim();
                 match input {
                     "q" | "quit" => break 'running,
                     "d" => self.show_frame_buffer(),
@@ -372,59 +377,16 @@ impl Chip8 {
 
             // Update display
             if self.display_update {
-                canvas.set_draw_color(Color::RGBA(0, 0, 0, 0));
-                canvas.clear();
-                canvas.set_draw_color(Color::RGBA(255, 255, 255, 255));
-                for i in 0..32 {
-                    for j in 0..64 {
-                        if self.frame_buffer[i * 64 + j] == 1 {
-                            canvas.draw_point(Point::new(j as i32, i as i32)).unwrap();
-                        }
-                    }
-                }
-                canvas.present();
+                self.display.draw(self.frame_buffer.to_vec());
             }
 
-            // Update keyboard
-            self.keyboard = [0; 16];
-            event_pump
-                .keyboard_state()
-                .pressed_scancodes()
-                .filter_map(Keycode::from_scancode)
-                .for_each(|key| {
-                    match key {
-                        Keycode::Num1 => self.keyboard[0x1] = 1,
-                        Keycode::Num2 => self.keyboard[0x2] = 1,
-                        Keycode::Num3 => self.keyboard[0x3] = 1,
-                        Keycode::Num4 => self.keyboard[0xc] = 1,
-                        Keycode::Q => self.keyboard[0x4] = 1,
-                        Keycode::W => self.keyboard[0x5] = 1,
-                        Keycode::E => self.keyboard[0x6] = 1,
-                        Keycode::R => self.keyboard[0xd] = 1,
-                        Keycode::A => self.keyboard[0x7] = 1,
-                        Keycode::S => self.keyboard[0x8] = 1,
-                        Keycode::D => self.keyboard[0x9] = 1,
-                        Keycode::F => self.keyboard[0xe] = 1,
-                        Keycode::Z => self.keyboard[0xa] = 1,
-                        Keycode::X => self.keyboard[0x0] = 1,
-                        Keycode::C => self.keyboard[0xb] = 1,
-                        Keycode::V => self.keyboard[0xf] = 1,
-                        _ => {}
-                    };
-                });
+            // Update keyboard state
+            self.keyboard.state_update(&mut event_pump);
 
-            for event in event_pump.poll_iter() {
-                match event {
-                    Event::Quit { .. } => break 'running,
-                    _ => {}
-                }
+            // Check quit event
+            if self.display.check_quit_event(&mut event_pump) {
+                break 'running;
             }
         }
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     #[test]
-// }
