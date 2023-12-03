@@ -3,6 +3,7 @@ use sdl2::Sdl;
 use std::error::Error;
 use std::fs;
 use std::io;
+use std::time::Duration;
 
 extern crate sdl2;
 mod display;
@@ -323,7 +324,7 @@ impl Chip8 {
                 0x001e => self.i += self.v[self.x] as usize,
                 // LD F, Vx
                 0x0029 => {
-                    self.i = (self.v[self.x] as usize * FONT_SPRITE_SIZE) + FONTSET_START_ADDRESS
+                    self.i = (self.v[self.x] as usize * FONT_SPRITE_SIZE) + FONTSET_START_ADDRESS;
                 }
                 // LD B, Vx
                 0x0033 => {
@@ -349,10 +350,20 @@ impl Chip8 {
         }
     }
 
+    fn update_timers(&mut self) {
+        if self.dt > 0 {
+            self.dt -= 1;
+        }
+        if self.st > 0 {
+            self.st -= 1;
+        }
+    }
+
     fn step(&mut self) {
         self.fetch();
         self.decode();
         self.execute();
+        self.update_timers();
     }
 
     pub fn run(&mut self) {
@@ -387,6 +398,8 @@ impl Chip8 {
             if self.display.check_quit_event(&mut event_pump) {
                 break 'running;
             }
+
+            ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
         }
     }
 }
