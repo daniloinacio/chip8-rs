@@ -1,8 +1,8 @@
 use rand::Rng;
+use sdl2::Sdl;
 use std::error::Error;
 use std::fs;
 use std::io;
-use sdl2::Sdl;
 
 extern crate sdl2;
 mod display;
@@ -70,18 +70,18 @@ impl Chip8 {
         println!("CHIP8: Init memory and registers");
         let mut memory = [0; MEMORY_SIZE];
         memory[FONTSET_START_ADDRESS..FONTSET_END_ADDRESS].copy_from_slice(&FONTSET[..]);
-        
+
         // Setup SDL
         let sdl_context = sdl2::init().unwrap();
         let mut video_subsystem = sdl_context.video().unwrap();
-        
+
         let display_config = DisplayConfig {
             scale: 10.0,
-            width: 640, 
+            width: 640,
             height: 320,
         };
-        
-        let keyboard_config = KeyboardConfig{};
+
+        let keyboard_config = KeyboardConfig {};
 
         Chip8 {
             i: 0,
@@ -333,13 +333,13 @@ impl Chip8 {
                 }
                 // LD [I], Vx
                 0x0055 => {
-                    for i in 0..N_REGISTERS {
+                    for i in 0..=self.x {
                         self.memory[self.i + i] = self.v[i];
                     }
                 }
                 // LD Vx, [I]
                 0x0065 => {
-                    for i in 0..N_REGISTERS {
+                    for i in 0..=self.x {
                         self.v[i] = self.memory[self.i + 1];
                     }
                 }
@@ -390,3 +390,4 @@ impl Chip8 {
         }
     }
 }
+
