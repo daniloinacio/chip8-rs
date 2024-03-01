@@ -1,6 +1,8 @@
-use chip8_rs::Chip8;
 use std::env;
 use std::process;
+
+mod ui;
+use crate::ui::UI;
 
 fn main() {
     let mut args = env::args();
@@ -10,12 +12,12 @@ fn main() {
         process::exit(1);
     });
 
-    let mut chip8 = Chip8::new();
+    let mut ui = UI::new();
 
-    if let Err(e) = chip8.load_bin(&path) {
+    if let Err(e) = ui.load_bin(&path) {
         eprintln!("Chip8 error: {e}");
         process::exit(1);
     }
 
-    chip8.run();
+    ui.run();
 }

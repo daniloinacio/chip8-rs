@@ -1,29 +1,18 @@
 use rand::Rng;
-use sdl2::Sdl;
-use std::error::Error;
-use std::fs;
-use std::io;
-use std::time::Duration;
-
-extern crate sdl2;
-mod display;
-mod keyboard;
-
-use crate::display::Display;
-use crate::display::DisplayConfig;
-use crate::keyboard::Keyboard;
-use crate::keyboard::KeyboardConfig;
 
 const MEMORY_SIZE: usize = 4096;
 const START_ADDRESS: usize = 0x200;
 const FONT_SPRITE_SIZE: usize = 5;
 const FONTSET_START_ADDRESS: usize = 0x50;
 const FONTSET_SIZE: usize = 80;
-const DISPLAY_WIDTH: usize = 64;
-const DISPLAY_HEIGTH: usize = 32;
+const SCREEN_WIDTH: usize = 64;
+const SCREEN_HEIGTH: usize = 32;
+const KEY_PRESSED: u8 = 1;
+const KEY_NOT_PRESSED: u8 = 0;
 const N_REGISTERS: usize = 16;
 const N_STACK_LEVELS: usize = 16;
 const FONTSET_END_ADDRESS: usize = FONTSET_START_ADDRESS + FONTSET_SIZE;
+
 const FONTSET: [u8; FONTSET_SIZE] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -53,11 +42,9 @@ pub struct Chip8 {
     v: [u8; N_REGISTERS],
     stack: [u16; N_STACK_LEVELS],
     memory: [u8; MEMORY_SIZE],
-    keyboard: Keyboard,
-    frame_buffer: [u8; DISPLAY_WIDTH * DISPLAY_HEIGTH],
-    display: Display,
-    display_update: bool,
-    sdl_context: Sdl,
+    key: [u8; 16],
+    frame_buffer: [u8; SCREEN_WIDTH * SCREEN_HEIGTH],
+    pub draw: bool,
     code: u16,
     x: usize,
     y: usize,
@@ -72,18 +59,6 @@ impl Chip8 {
         let mut memory = [0; MEMORY_SIZE];
         memory[FONTSET_START_ADDRESS..FONTSET_END_ADDRESS].copy_from_slice(&FONTSET[..]);
 
-        // Setup SDL
-        let sdl_context = sdl2::init().unwrap();
-        let mut video_subsystem = sdl_context.video().unwrap();
-
-        let display_config = DisplayConfig {
-            scale: 10.0,
-            width: 640,
-            height: 320,
-        };
-
-        let keyboard_config = KeyboardConfig {};
-
         Chip8 {
             i: 0,
             pc: START_ADDRESS,
@@ -94,11 +69,9 @@ impl Chip8 {
             v: [0; N_REGISTERS],
             stack: [0; N_STACK_LEVELS],
             memory,
-            keyboard: Keyboard::new(keyboard_config),
-            frame_buffer: [0; DISPLAY_WIDTH * DISPLAY_HEIGTH],
-            display: Display::new(display_config, &mut video_subsystem),
-            display_update: false,
-            sdl_context,
+            key: [0; 16],
+            frame_buffer: [0; SCREEN_WIDTH * SCREEN_HEIGTH],
+            draw: false,
             code: 0,
             x: 0,
             y: 0,
@@ -108,16 +81,7 @@ impl Chip8 {
         }
     }
 
-    pub fn load_bin(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
-        println!("CHIP8: Load the binary to memory");
-        let content: Vec<u8> = fs::read(path)?;
-
-        self.store_data_ram(content)?;
-
-        Ok(())
-    }
-
-    fn store_data_ram(&mut self, data: Vec<u8>) -> Result<(), &'static str> {
+    pub fn store_data_ram(&mut self, data: Vec<u8>) -> Result<(), &'static str> {
         let end_address = START_ADDRESS + data.len();
         if end_address >= MEMORY_SIZE {
             return Err("Data too large to store in the RAM!");
@@ -127,16 +91,41 @@ impl Chip8 {
     }
 
     pub fn show_frame_buffer(&self) {
-        let line = "-".to_string().repeat(DISPLAY_WIDTH * 2);
+        let line = "-".to_string().repeat(SCREEN_WIDTH * 2);
         println!("{line}");
-        for i in 0..DISPLAY_HEIGTH {
-            print!("|{}", self.frame_buffer[i * DISPLAY_WIDTH]);
-            for j in 1..DISPLAY_WIDTH {
-                print!(" {}", self.frame_buffer[i * DISPLAY_WIDTH + j]);
+        for i in 0..SCREEN_HEIGTH {
+            print!("|{}", self.frame_buffer[i * SCREEN_WIDTH]);
+            for j in 1..SCREEN_WIDTH {
+                print!(" {}", self.frame_buffer[i * SCREEN_WIDTH + j]);
             }
             println!("|");
         }
         println!("{line}");
+    }
+
+    pub fn keypress(&mut self, key: u8) {
+        self.key[key as usize] = KEY_PRESSED;
+    }
+
+    pub fn is_key_pressed(&self, key: u8) -> bool {
+        self.key[key as usize] == KEY_PRESSED
+    }
+
+    pub fn is_key_not_pressed(&self, key: u8) -> bool {
+        self.key[key as usize] == KEY_NOT_PRESSED
+    }
+
+    pub fn get_pressed_key(&self) -> Option<u8> {
+        for (key, state) in self.key.iter().enumerate() {
+            if *state == KEY_PRESSED {
+                return Some(key as u8);
+            }
+        }
+        None
+    }
+
+    pub fn get_frame_buffer(&self) -> [u8; SCREEN_WIDTH * SCREEN_HEIGTH] {
+        return self.frame_buffer;
     }
 
     fn fetch(&mut self) {
@@ -157,13 +146,13 @@ impl Chip8 {
 
     fn execute(&mut self) {
         println!("CHIP8: Execute instruction");
-        self.display_update = false;
+        self.draw = false;
 
         match self.code {
             // CLS
             0x00e0 => {
-                self.frame_buffer = [0; DISPLAY_WIDTH * DISPLAY_HEIGTH];
-                self.display_update = true;
+                self.frame_buffer = [0; SCREEN_WIDTH * SCREEN_HEIGTH];
+                self.draw = true;
             }
             // RET
             0x00ee => {
@@ -273,10 +262,10 @@ impl Chip8 {
                     for x in 0..8 {
                         // Get each bit from the sprite byte
                         let pixel = (sprite_byte & (0x80 >> x)) >> (7 - x);
-                        let coord_x = (x0 + x) % DISPLAY_WIDTH as u8;
-                        let coord_y = (y0 + y) % DISPLAY_HEIGTH as u8;
+                        let coord_x = (x0 + x) % SCREEN_WIDTH as u8;
+                        let coord_y = (y0 + y) % SCREEN_HEIGTH as u8;
                         let coordinate =
-                            (coord_x + (coord_y as usize * DISPLAY_WIDTH) as u8) as usize;
+                            (coord_x + (coord_y as usize * SCREEN_WIDTH) as u8) as usize;
                         // Check collision
                         self.v[0x0f] = if self.frame_buffer[coordinate] == 1 && pixel == 1 {
                             1
@@ -286,18 +275,18 @@ impl Chip8 {
                         self.frame_buffer[coordinate] ^= pixel;
                     }
                 }
-                self.display_update = true;
+                self.draw = true;
             }
             0xe000 => match self.nn {
                 // SKP Vx
                 0x009e => {
-                    if self.keyboard.is_key_pressed(self.v[self.x]) {
+                    if self.is_key_pressed(self.v[self.x]) {
                         self.pc += 2;
                     }
                 }
                 // SKNP Vx
                 0x00a1 => {
-                    if self.keyboard.is_key_not_pressed(self.v[self.x]) {
+                    if self.is_key_not_pressed(self.v[self.x]) {
                         self.pc += 2;
                     }
                 }
@@ -308,13 +297,13 @@ impl Chip8 {
                 0x0007 => self.v[self.x] = self.dt,
                 // LD Vx, K
                 0x000a => {
-                    let mut event_pump = self.sdl_context.event_pump().unwrap();
-                    self.v[self.x] = 'polling: loop {
-                        self.keyboard.state_update(&mut event_pump);
-                        if let Some(key) = self.keyboard.get_pressed_key() {
-                            break 'polling key;
-                        }
-                    };
+                    // Rerun the opcode until a key pressed
+                    self.v[self.x] = if let Some(key) = self.get_pressed_key() {
+                        key
+                    } else {
+                        self.pc -= 2;
+                        return;
+                    }
                 }
                 // LD DT, Vx
                 0x0015 => self.dt = self.v[self.x],
@@ -348,9 +337,11 @@ impl Chip8 {
             },
             _ => {}
         }
+
+        self.key = [0; 16];
     }
 
-    fn update_timers(&mut self) {
+    pub fn tick_timers(&mut self) {
         if self.dt > 0 {
             self.dt -= 1;
         }
@@ -359,48 +350,10 @@ impl Chip8 {
         }
     }
 
-    fn step(&mut self) {
+    pub fn tick(&mut self) {
         self.fetch();
         self.decode();
         self.execute();
-        self.update_timers();
-    }
-
-    pub fn run(&mut self) {
-        let mut step_by_step = true;
-        let mut event_pump = self.sdl_context.event_pump().unwrap();
-
-        'running: loop {
-            // Run instruction
-            self.step();
-
-            if step_by_step {
-                let mut input = String::new();
-                io::stdin().read_line(&mut input).unwrap();
-                let input = input.trim();
-                match input {
-                    "q" | "quit" => break 'running,
-                    "d" => self.show_frame_buffer(),
-                    "run" => step_by_step = false,
-                    _ => {}
-                }
-            }
-
-            // Update display
-            if self.display_update {
-                self.display.draw(self.frame_buffer.to_vec());
-            }
-
-            // Update keyboard state
-            self.keyboard.state_update(&mut event_pump);
-
-            // Check quit event
-            if self.display.check_quit_event(&mut event_pump) {
-                break 'running;
-            }
-
-            ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
-        }
+        self.tick_timers();
     }
 }
-
