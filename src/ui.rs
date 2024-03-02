@@ -46,7 +46,7 @@ impl UI {
         self.canvas.set_draw_color(Color::RGBA(255, 255, 255, 255));
         for i in 0..32 {
             for j in 0..64 {
-                if frame_buffer[i * 64 + j] == 1 {
+                if frame_buffer[i][j] == 1 {
                     self.canvas
                         .draw_point(Point::new(j as i32, i as i32))
                         .unwrap();

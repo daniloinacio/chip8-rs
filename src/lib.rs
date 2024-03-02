@@ -1,4 +1,5 @@
 use rand::Rng;
+use std::collections::HashMap;
 
 const MEMORY_SIZE: usize = 4096;
 const START_ADDRESS: usize = 0x200;
@@ -107,15 +108,15 @@ impl Chip8 {
         self.keypad[key as usize] = KEY_PRESSED;
     }
 
-    pub fn is_key_pressed(&self, key: u8) -> bool {
+    fn is_key_pressed(&self, key: u8) -> bool {
         self.keypad[key as usize] == KEY_PRESSED
     }
 
-    pub fn is_key_not_pressed(&self, key: u8) -> bool {
+    fn is_key_not_pressed(&self, key: u8) -> bool {
         self.keypad[key as usize] == KEY_NOT_PRESSED
     }
 
-    pub fn get_pressed_key(&self) -> Option<u8> {
+    fn get_pressed_key(&self) -> Option<u8> {
         for (key, state) in self.keypad.iter().enumerate() {
             if *state == KEY_PRESSED {
                 return Some(key as u8);
@@ -124,8 +125,110 @@ impl Chip8 {
         None
     }
 
-    pub fn get_frame_buffer(&self) -> [u8; SCREEN_WIDTH * SCREEN_HEIGTH] {
-        return self.frame_buffer;
+    pub fn get_frame_buffer(&self) -> Vec<Vec<u8>> {
+        let mut frame_buffer: Vec<Vec<u8>> = vec![vec![0; SCREEN_WIDTH]; SCREEN_HEIGTH];
+        for i in 0..SCREEN_HEIGTH {
+            for j in 0..SCREEN_WIDTH {
+                frame_buffer[i][j] = self.frame_buffer[i * SCREEN_WIDTH + j]
+            }
+        }
+        frame_buffer
+    }
+
+    pub fn get_registers(&self) -> HashMap<String, String> {
+        let mut registers = HashMap::new();
+        registers.insert(String::from("PC"), format!("0x{:X}", self.pc));
+        registers.insert(String::from("SP"), format!("0x{:X}", self.sp));
+        registers.insert(String::from("DT"), format!("0x{:X}", self.dt));
+        registers.insert(String::from("ST"), format!("0x{:X}", self.st));
+        registers.insert(String::from("V0"), format!("0x{:X}", self.v[0x0]));
+        registers.insert(String::from("V1"), format!("0x{:X}", self.v[0x1]));
+        registers.insert(String::from("V2"), format!("0x{:X}", self.v[0x2]));
+        registers.insert(String::from("V3"), format!("0x{:X}", self.v[0x3]));
+        registers.insert(String::from("V4"), format!("0x{:X}", self.v[0x4]));
+        registers.insert(String::from("V5"), format!("0x{:X}", self.v[0x5]));
+        registers.insert(String::from("V6"), format!("0x{:X}", self.v[0x6]));
+        registers.insert(String::from("V7"), format!("0x{:X}", self.v[0x7]));
+        registers.insert(String::from("V8"), format!("0x{:X}", self.v[0x8]));
+        registers.insert(String::from("V9"), format!("0x{:X}", self.v[0x9]));
+        registers.insert(String::from("VA"), format!("0x{:X}", self.v[0xa]));
+        registers.insert(String::from("VB"), format!("0x{:X}", self.v[0xb]));
+        registers.insert(String::from("VC"), format!("0x{:X}", self.v[0xc]));
+        registers.insert(String::from("VD"), format!("0x{:X}", self.v[0xd]));
+        registers.insert(String::from("VE"), format!("0x{:X}", self.v[0xe]));
+        registers.insert(String::from("VF"), format!("0x{:X}", self.v[0xf]));
+        registers
+    }
+
+    pub fn get_paged_memory(
+        &self,
+        page: usize,
+        page_size: usize,
+    ) -> Option<Vec<HashMap<String, String>>> {
+        let start_address = page * page_size * 2;
+        let mut memory: Vec<HashMap<String, String>> = vec![];
+
+        if start_address >= MEMORY_SIZE {
+            return None;
+        }
+        let end_address = if (start_address + (page_size * 2)) < MEMORY_SIZE {
+            start_address + (page_size * 2)
+        } else {
+            MEMORY_SIZE - 1
+        };
+
+        for address in (start_address..end_address).step_by(2) {
+            let mut column: HashMap<String, String> = HashMap::new();
+            let opcode = ((self.memory[address] as u16) << 8) | self.memory[address + 1] as u16;
+            column.insert(String::from("address"), format!("0x{:X}", address));
+            column.insert(String::from("value"), format!("0x{:X}", opcode));
+            column.insert(String::from("opcode"), self.disassembler(opcode));
+            memory.push(column);
+        }
+
+        Some(memory)
+    }
+
+    pub fn disassembler(&self, opcode: u16) -> String {
+        let opcode: Vec<char> = format!("{:X}", opcode).to_uppercase().chars().collect();
+
+        match (opcode[0], opcode[1], opcode[2], opcode[3]) {
+            ('0', '0', 'E', '0') => String::from("CLS"),
+            ('0', '0', 'E', 'E') => String::from("RET"),
+            ('1', n1, n2, n3) => format!("JP 0x{}{}{}", n1, n2, n3),
+            ('2', n1, n2, n3) => format!("CALL 0x{}{}{}", n1, n2, n3),
+            ('3', x, k1, k2) => format!("SE V{} 0x{}{}", x, k1, k2),
+            ('4', x, k1, k2) => format!("SNE V{} 0x{}{}", x, k1, k2),
+            ('5', x, y, '0') => format!("SE V{} V{}", x, y),
+            ('6', x, k1, k2) => format!("LD V{} {}{}", x, k1, k2),
+            ('7', x, k1, k2) => format!("ADD V{} {}{}", x, k1, k2),
+            ('8', x, y, '0') => format!("LD V{} V{}", x, y),
+            ('8', x, y, '1') => format!("OR V{} V{}", x, y),
+            ('8', x, y, '2') => format!("AND V{} V{}", x, y),
+            ('8', x, y, '3') => format!("XOR V{} V{}", x, y),
+            ('8', x, y, '4') => format!("ADD V{} V{}", x, y),
+            ('8', x, y, '5') => format!("SUB V{} V{}", x, y),
+            ('8', x, _, '6') => format!("SHR V{}", x),
+            ('8', x, y, '7') => format!("SUBN V{} V{}", x, y),
+            ('8', x, _, 'E') => format!("SHL V{}", x),
+            ('9', x, y, '0') => format!("SNE V{} V{}", x, y),
+            ('A', n1, n2, n3) => format!("LD I 0x{}{}{}", n1, n2, n3),
+            ('B', n1, n2, n3) => format!("JP V0 0x{}{}{}", n1, n2, n3),
+            ('C', x, k1, k2) => format!("RND V{} 0x{}{}", x, k1, k2),
+            ('D', x, y, n) => format!("DRW V{} V{} 0x{}", x, y, n),
+            ('E', x, '9', 'E') => format!("SKP V{}", x),
+            ('E', x, 'A', '1') => format!("SKNP V{}", x),
+            ('F', x, '0', '7') => format!("LD V{} DT", x),
+            ('F', x, '0', 'A') => format!("LD V{} K", x),
+            ('F', x, '1', '5') => format!("LD DT V{}", x),
+            ('F', x, '1', '8') => format!("LD ST V{}", x),
+            ('F', x, '1', 'E') => format!("ADD I V{}", x),
+            ('F', x, '2', '9') => format!("LD F V{}", x),
+            ('F', x, '3', '3') => format!("LD B V{}", x),
+            ('F', x, '5', '5') => format!("LD [I] V{}", x),
+            ('F', x, '6', '5') => format!("LD V{} [I]", x),
+            (_, _, _, _) => String::from("-- -- -- --"),
+        }
     }
 
     fn fetch(&mut self) {
