@@ -42,7 +42,7 @@ pub struct Chip8 {
     v: [u8; N_REGISTERS],
     stack: [u16; N_STACK_LEVELS],
     memory: [u8; MEMORY_SIZE],
-    key: [u8; 16],
+    keypad: [u8; 16],
     frame_buffer: [u8; SCREEN_WIDTH * SCREEN_HEIGTH],
     pub draw: bool,
     code: u16,
@@ -69,7 +69,7 @@ impl Chip8 {
             v: [0; N_REGISTERS],
             stack: [0; N_STACK_LEVELS],
             memory,
-            key: [0; 16],
+            keypad: [0; 16],
             frame_buffer: [0; SCREEN_WIDTH * SCREEN_HEIGTH],
             draw: false,
             code: 0,
@@ -104,19 +104,19 @@ impl Chip8 {
     }
 
     pub fn keypress(&mut self, key: u8) {
-        self.key[key as usize] = KEY_PRESSED;
+        self.keypad[key as usize] = KEY_PRESSED;
     }
 
     pub fn is_key_pressed(&self, key: u8) -> bool {
-        self.key[key as usize] == KEY_PRESSED
+        self.keypad[key as usize] == KEY_PRESSED
     }
 
     pub fn is_key_not_pressed(&self, key: u8) -> bool {
-        self.key[key as usize] == KEY_NOT_PRESSED
+        self.keypad[key as usize] == KEY_NOT_PRESSED
     }
 
     pub fn get_pressed_key(&self) -> Option<u8> {
-        for (key, state) in self.key.iter().enumerate() {
+        for (key, state) in self.keypad.iter().enumerate() {
             if *state == KEY_PRESSED {
                 return Some(key as u8);
             }
@@ -338,7 +338,7 @@ impl Chip8 {
             _ => {}
         }
 
-        self.key = [0; 16];
+        self.keypad = [0; 16];
     }
 
     pub fn tick_timers(&mut self) {
