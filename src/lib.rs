@@ -125,6 +125,27 @@ impl Chip8 {
         None
     }
 
+    pub fn get_keypad(&self) -> HashMap<String, bool> {
+        let mut keypad = HashMap::new();
+        keypad.insert(String::from("0"), self.is_key_pressed(0x00));
+        keypad.insert(String::from("1"), self.is_key_pressed(0x01));
+        keypad.insert(String::from("2"), self.is_key_pressed(0x02));
+        keypad.insert(String::from("3"), self.is_key_pressed(0x03));
+        keypad.insert(String::from("4"), self.is_key_pressed(0x04));
+        keypad.insert(String::from("5"), self.is_key_pressed(0x05));
+        keypad.insert(String::from("6"), self.is_key_pressed(0x06));
+        keypad.insert(String::from("7"), self.is_key_pressed(0x07));
+        keypad.insert(String::from("8"), self.is_key_pressed(0x08));
+        keypad.insert(String::from("9"), self.is_key_pressed(0x09));
+        keypad.insert(String::from("A"), self.is_key_pressed(0x0a));
+        keypad.insert(String::from("B"), self.is_key_pressed(0x0b));
+        keypad.insert(String::from("C"), self.is_key_pressed(0x0c));
+        keypad.insert(String::from("D"), self.is_key_pressed(0x0d));
+        keypad.insert(String::from("E"), self.is_key_pressed(0x0e));
+        keypad.insert(String::from("F"), self.is_key_pressed(0x0f));
+        keypad
+    }
+
     pub fn get_frame_buffer(&self) -> Vec<Vec<u8>> {
         let mut frame_buffer: Vec<Vec<u8>> = vec![vec![0; SCREEN_WIDTH]; SCREEN_HEIGTH];
         for i in 0..SCREEN_HEIGTH {
