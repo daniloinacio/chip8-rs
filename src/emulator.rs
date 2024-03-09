@@ -3,56 +3,107 @@ use chip8_rs::Chip8;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
+use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Point;
+use sdl2::rect::Rect;
+use sdl2::render::SurfaceCanvas;
 use sdl2::render::WindowCanvas;
+use sdl2::surface::Surface;
+use sdl2::ttf;
 use sdl2::Sdl;
 use std::error::Error;
 use std::fs;
 use std::io;
 use std::time::Duration;
 
-pub struct UI {
+pub struct Emulator {
     sdl_context: Sdl,
     canvas: WindowCanvas,
     chip8: Chip8,
+    debug_mode: bool,
 }
 
-impl UI {
-    pub fn new() -> UI {
+impl Emulator {
+    pub fn new(debug_mode: bool) -> Emulator {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
+        let (windows_width, windows_height) = if debug_mode { (1280, 720) } else { (640, 320) };
+
         let window = video_subsystem
-            .window("CHIP8", 640, 320)
+            .window("CHIP8", windows_width, windows_height)
             .position_centered()
             .build()
             .unwrap();
 
-        let mut canvas = window.into_canvas().build().unwrap();
-        canvas.set_scale(10.0, 10.0).unwrap();
+        let canvas = window.into_canvas().build().unwrap();
         let chip8 = Chip8::new();
 
-        UI {
+        Emulator {
             sdl_context,
             canvas,
             chip8,
+            debug_mode,
         }
     }
 
     pub fn screen_update(&mut self) {
-        let frame_buffer = self.chip8.get_frame_buffer();
-
-        self.canvas.set_draw_color(Color::RGBA(0, 0, 0, 0));
+        self.canvas.set_draw_color(Color::BLACK);
         self.canvas.clear();
-        self.canvas.set_draw_color(Color::RGBA(255, 255, 255, 255));
+
+        let mut screen_canvas =
+            SurfaceCanvas::from_surface(Surface::new(640, 320, PixelFormatEnum::RGB24).unwrap())
+                .unwrap();
+        screen_canvas.set_scale(10.0, 10.0).unwrap();
+        let frame_buffer = self.chip8.get_frame_buffer();
+        screen_canvas.set_draw_color(Color::WHITE);
         for i in 0..32 {
             for j in 0..64 {
                 if frame_buffer[i][j] == 1 {
-                    self.canvas
+                    screen_canvas
                         .draw_point(Point::new(j as i32, i as i32))
                         .unwrap();
                 }
             }
         }
+
+        let texture_creator = self.canvas.texture_creator();
+
+        let screen_texture = screen_canvas
+            .into_surface()
+            .as_texture(&texture_creator)
+            .unwrap();
+
+        if self.debug_mode {
+            // Draw screen with red borders
+            self.canvas.set_draw_color(Color::RED);
+            self.canvas.draw_rect(Rect::new(0, 0, 642, 322)).unwrap();
+
+            self.canvas
+                .copy(&screen_texture, None, Rect::new(1, 1, 640, 320))
+                .unwrap();
+
+            // Add some text with debug information
+            let text_texture = ttf::init()
+                .unwrap()
+                .load_font("/home/danilo/roboto.ttf", 20)
+                .unwrap()
+                .render("DEBUGGER")
+                .solid(Color::WHITE)
+                .unwrap()
+                .as_texture(&texture_creator)
+                .unwrap();
+
+            let texture_query = text_texture.query();
+
+            let dst = Rect::new(680, 0, texture_query.width, texture_query.height);
+
+            self.canvas.copy(&text_texture, None, dst).unwrap();
+        } else {
+            self.canvas
+                .copy(&screen_texture, None, Rect::new(0, 0, 640, 320))
+                .unwrap();
+        }
+
         self.canvas.present();
     }
 
@@ -107,7 +158,7 @@ impl UI {
     }
 
     pub fn run(&mut self) {
-        let mut step_by_step = true;
+        let mut step_by_step = false;
 
         'running: loop {
             // Update keyboard state
